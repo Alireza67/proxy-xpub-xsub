@@ -9,6 +9,7 @@
 using namespace std;
 
 atomic<bool> kLiveFlag = true;
+auto liveCouner = 0;
 mutex lock_;
 
 void Print(string msg)
@@ -42,7 +43,6 @@ void Proxy(vector<string> publisherAddresses, string proxyPublisherAddress)
 	res = zmq_setsockopt(xpub, ZMQ_LINGER, &lingerTime, sizeof(lingerTime));
 	res = zmq_close(xsub);
 	res = zmq_close(xpub);
-	res = zmq_ctx_destroy(ctx);
 }
 
 void Publisher(string name, string address, int message)
@@ -64,7 +64,6 @@ void Publisher(string name, string address, int message)
 	auto lingerTime = 0;
 	res = zmq_setsockopt(socketSender, ZMQ_LINGER, &lingerTime, sizeof(lingerTime));
 	res = zmq_close(socketSender);
-	res = zmq_ctx_destroy(ctx);
 }
 
 void Subscriber(string name, string ProxyAddress, int filter)
@@ -94,7 +93,6 @@ void Subscriber(string name, string ProxyAddress, int filter)
 	auto lingerTime = 0;
 	res = zmq_setsockopt(socketReceiver, ZMQ_LINGER, &lingerTime, sizeof(lingerTime));
 	res = zmq_close(socketReceiver);
-	res = zmq_ctx_destroy(ctx);
 }
 
 int main()
@@ -115,13 +113,21 @@ int main()
 
 	auto sub1 = thread(Subscriber, "sub1"s, proxyPublisherAddress, 66);
 	auto sub2 = thread(Subscriber, "sub2"s, proxyPublisherAddress, 77);
-	while (kLiveFlag)
+
+
+
+	while (liveCouner < 5)
 	{
+		liveCouner++;
 		this_thread::sleep_for(1s);
 	}
+	kLiveFlag.store(false);
 	proxy.join();
 	pub1.join();
 	pub2.join();
 	sub1.join();
 	sub2.join();
+
+	auto res = zmq_ctx_destroy(ctx);
+
 }
