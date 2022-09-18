@@ -17,10 +17,10 @@ void Print(string msg)
 	cout << msg << endl;
 }
 
+auto ctx = zmq_ctx_new();
+
 void Proxy(vector<string> publisherAddresses, string proxyPublisherAddress)
 {
-	auto ctx = zmq_ctx_new();
-
 	auto xpub = zmq_socket(ctx, ZMQ_XPUB);
 	auto res = zmq_bind(xpub, proxyPublisherAddress.c_str());
 
@@ -47,7 +47,6 @@ void Proxy(vector<string> publisherAddresses, string proxyPublisherAddress)
 
 void Publisher(string name, string address, int message)
 {
-	auto ctx = zmq_ctx_new();
 	auto socketSender = zmq_socket(ctx, ZMQ_PUB);
 	auto res = zmq_bind(socketSender, address.c_str());
 
@@ -70,7 +69,6 @@ void Publisher(string name, string address, int message)
 
 void Subscriber(string name, string ProxyAddress, int filter)
 {
-	auto ctx = zmq_ctx_new();
 	auto socketReceiver = zmq_socket(ctx, ZMQ_SUB);
 	auto res = zmq_connect(socketReceiver, ProxyAddress.c_str());
 	res = zmq_setsockopt(socketReceiver, ZMQ_SUBSCRIBE, &filter, sizeof(filter));
@@ -102,11 +100,11 @@ void Subscriber(string name, string ProxyAddress, int filter)
 int main()
 {
 	auto publisherPort = 9000;
-	auto publisherAddress = "tcp://127.0.0.1:"s + to_string(publisherPort);
+	auto publisherAddress = "inproc://job_1";
 	auto pub1 = thread(Publisher, "pub1"s, publisherAddress, 66);
 
 	auto publisherPort2 = 9001;
-	auto publisherAddress2 = "tcp://127.0.0.1:"s + to_string(publisherPort2);
+	auto publisherAddress2 = "inproc://job_2";
 	auto pub2 = thread(Publisher, "pub2"s, publisherAddress2, 77);
 
 	auto publisherAddresses = vector<string>{ publisherAddress, publisherAddress2 };
