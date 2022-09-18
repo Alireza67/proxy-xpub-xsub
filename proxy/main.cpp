@@ -102,17 +102,17 @@ void Subscriber(string name, string ProxyAddress, int filter)
 int main()
 {
 	auto publisherPort = 9000;
-	auto publisherAddress = "tcp://192.168.0.10:"s + to_string(publisherPort);
+	auto publisherAddress = "tcp://127.0.0.1:"s + to_string(publisherPort);
 	auto pub1 = thread(Publisher, "pub1"s, publisherAddress, 66);
 
 	auto publisherPort2 = 9001;
-	auto publisherAddress2 = "tcp://192.168.0.10:"s + to_string(publisherPort2);
+	auto publisherAddress2 = "tcp://127.0.0.1:"s + to_string(publisherPort2);
 	auto pub2 = thread(Publisher, "pub2"s, publisherAddress2, 77);
 
 	auto publisherAddresses = vector<string>{ publisherAddress, publisherAddress2 };
 
 	auto proxyPublisherPort = 10000;
-	auto proxyPublisherAddress = "tcp://192.168.0.10:"s + to_string(proxyPublisherPort);
+	auto proxyPublisherAddress = "tcp://127.0.0.1:"s + to_string(proxyPublisherPort);
 	auto proxy = thread(Proxy, publisherAddresses, proxyPublisherAddress);
 
 	auto sub1 = thread(Subscriber, "sub1"s, proxyPublisherAddress, 66);
