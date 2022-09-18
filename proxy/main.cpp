@@ -122,12 +122,12 @@ int main()
 		this_thread::sleep_for(1s);
 	}
 	kLiveFlag.store(false);
-	proxy.join();
 	pub1.join();
 	pub2.join();
 	sub1.join();
 	sub2.join();
-
 	auto res = zmq_ctx_destroy(ctx);
+	proxy.join();
+
 
 }
