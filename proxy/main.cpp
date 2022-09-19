@@ -29,7 +29,7 @@ void Proxy(vector<string> publisherAddresses, string proxyPublisherAddress)
 	for (auto& item : publisherAddresses)
 	{
 		res = zmq_connect(xsub, item.c_str());
-	}	
+	}
 
 	res = zmq_proxy(xsub, xpub, NULL);
 	cout << "CLOSE PROXY!" << endl;
@@ -46,19 +46,15 @@ void Proxy(vector<string> publisherAddresses, string proxyPublisherAddress)
 	res = zmq_close(xpub);
 }
 
-void Publisher(string name, string address, int message)
+void Publisher(string name, string address, int filter, int message)
 {
 	auto socketSender = zmq_socket(ctx, ZMQ_PUB);
 	auto res = zmq_bind(socketSender, address.c_str());
 
 	while (kLiveFlag.load())
 	{
+		res = zmq_send(socketSender, &filter, sizeof(filter), ZMQ_SNDMORE);
 		res = zmq_send(socketSender, &message, sizeof(message), 0);
-		if (res)
-		{
-			//auto msg = "Publisher (" + name + ") send: " + to_string(message);
-			//Print(msg);
-		}
 		this_thread::sleep_for(1s);
 	}
 
@@ -75,10 +71,14 @@ void Subscriber(string name, string ProxyAddress, int filter)
 	auto timeout = 1000;
 	res = zmq_setsockopt(socketReceiver, ZMQ_RCVTIMEO, &timeout, sizeof(timeout));
 
+	int key;
 	int buffer;
 
 	while (kLiveFlag.load())
 	{
+		res = zmq_recv(socketReceiver, &key, sizeof(key), 0);
+		if (res < 0)
+			continue;
 		res = zmq_recv(socketReceiver, &buffer, sizeof(buffer), 0);
 		if (res < 0)
 		{
@@ -86,7 +86,7 @@ void Subscriber(string name, string ProxyAddress, int filter)
 		}
 		else
 		{
-			auto msg = "Subscriber (" + name + ") receive: " + to_string(buffer);
+			auto msg = "Subscriber (" + name + ") receive: key: " + to_string(key) + " value: " + to_string(buffer);
 			Print(msg);
 		}
 	}
@@ -100,11 +100,11 @@ int main()
 {
 	auto publisherPort = 9000;
 	auto publisherAddress = "inproc://job_1";
-	auto pub1 = thread(Publisher, "pub1"s, publisherAddress, 66);
+	auto pub1 = thread(Publisher, "pub1"s, publisherAddress, 66, 30);
 
 	auto publisherPort2 = 9001;
 	auto publisherAddress2 = "inproc://job_2";
-	auto pub2 = thread(Publisher, "pub2"s, publisherAddress2, 77);
+	auto pub2 = thread(Publisher, "pub2"s, publisherAddress2, 77, 60);
 
 	auto publisherAddresses = vector<string>{ publisherAddress, publisherAddress2 };
 
@@ -117,7 +117,7 @@ int main()
 
 
 
-	while (liveCouner < 5)
+	while (liveCouner < 600)
 	{
 		liveCouner++;
 		this_thread::sleep_for(1s);
