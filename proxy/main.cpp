@@ -32,6 +32,7 @@ void Proxy(vector<string> publisherAddresses, string proxyPublisherAddress)
 	}	
 
 	res = zmq_proxy(xsub, xpub, NULL);
+	cout << "CLOSE PROXY!" << endl;
 
 	while (kLiveFlag)
 	{
@@ -126,8 +127,7 @@ int main()
 	pub2.join();
 	sub1.join();
 	sub2.join();
-	auto res = zmq_ctx_destroy(ctx);
+	auto res = zmq_ctx_shutdown(ctx);
+	res = zmq_ctx_destroy(ctx);
 	proxy.join();
-
-
 }
