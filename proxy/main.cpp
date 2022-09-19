@@ -129,6 +129,11 @@ void Subscriber(string name, string ProxyAddress, int filter)
 	res = zmq_close(socketReceiver);
 }
 
+void ResolveSlowJoinerSyndrome()
+{
+	this_thread::sleep_for(1s);
+}
+
 int main()
 {
 	auto publisherPort = 9000;
@@ -149,6 +154,7 @@ int main()
 	auto filters = vector<int>{ filter1, filter2 };
 
 	auto proxy = thread(Proxy, publisherAddresses, proxyPublisherAddress, captureAddress);
+	ResolveSlowJoinerSyndrome();
 	auto pub2 = thread(Publisher, "pub2"s, publisherAddress2, filter2, 0);
 	auto pub1 = thread(Publisher, "pub1"s, publisherAddress, filter1, 100);
 	auto sub1 = thread(Subscriber, "sub1"s, proxyPublisherAddress, 66);
