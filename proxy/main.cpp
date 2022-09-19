@@ -5,6 +5,8 @@
 #include <iostream>
 #include <mutex>
 #include <vector>
+#include <Windows.h>
+#include <map>
 
 using namespace std;
 
@@ -14,6 +16,22 @@ atomic<bool> subscibersLiveFlag = true;
 auto liveCouner = 0;
 mutex lock_;
 
+enum class COMMAND : uint16_t
+{
+	PAUSE = 1,
+	RESUME = 2,
+	TERMINATE = 3,
+};
+
+static map<COMMAND, string> MAP_ENUM_STR
+{
+	{COMMAND::PAUSE, "PAUSE"},
+	{COMMAND::RESUME, "RESUME"},
+	{COMMAND::TERMINATE, "TERMINATE"},
+
+};
+
+
 void Print(string msg)
 {
 	unique_lock<mutex>lk(lock_);
@@ -22,10 +40,48 @@ void Print(string msg)
 
 auto ctx = zmq_ctx_new();
 
+void ProxySteerable(vector<string> publisherAddresses, string proxyPublisherAddress, string captureAddress, string controlAddress)
+{
+	auto xsub = zmq_socket(ctx, ZMQ_XSUB);
+	for (auto& item : publisherAddresses)
+	{
+		auto res = zmq_connect(xsub, item.c_str());
+	}
+
+	auto xpub = zmq_socket(ctx, ZMQ_XPUB);
+	auto res = zmq_bind(xpub, proxyPublisherAddress.c_str());
+
+	auto capture = zmq_socket(ctx, ZMQ_PUB);
+	res = zmq_bind(capture, captureAddress.c_str());
+
+	auto control = zmq_socket(ctx, ZMQ_PULL);
+	res = zmq_connect(control, controlAddress.c_str());
+	auto timeout = 1000;
+	res = zmq_setsockopt(control, ZMQ_RCVTIMEO, &timeout, sizeof(timeout));
+
+	res = zmq_proxy_steerable(xsub, xpub, capture, control);
+	cout << "CLOSE PROXY!" << endl;
+
+	publishersLiveFlag.store(false);
+	subscibersLiveFlag.store(false);
+	kLiveFlag.store(false);
+
+	auto lingerTime = 0;
+	res = zmq_setsockopt(xsub, ZMQ_LINGER, &lingerTime, sizeof(lingerTime));
+	res = zmq_setsockopt(xpub, ZMQ_LINGER, &lingerTime, sizeof(lingerTime));
+	res = zmq_setsockopt(capture, ZMQ_LINGER, &lingerTime, sizeof(lingerTime));
+	res = zmq_setsockopt(control, ZMQ_LINGER, &lingerTime, sizeof(lingerTime));
+	res = zmq_close(xsub);
+	res = zmq_close(xpub);
+	res = zmq_close(capture);
+	res = zmq_close(control);
+}
+
 void Proxy(vector<string> publisherAddresses, string proxyPublisherAddress, string captureAddress)
 {
 	auto capture = zmq_socket(ctx, ZMQ_PUB);
 	auto res = zmq_bind(capture, captureAddress.c_str());
+
 	auto xpub = zmq_socket(ctx, ZMQ_XPUB);
 	res = zmq_bind(xpub, proxyPublisherAddress.c_str());
 
@@ -37,11 +93,6 @@ void Proxy(vector<string> publisherAddresses, string proxyPublisherAddress, stri
 
 	res = zmq_proxy(xsub, xpub, capture);
 	cout << "CLOSE PROXY!" << endl;
-
-	while (kLiveFlag)
-	{
-		this_thread::sleep_for(1s);
-	}
 
 	auto lingerTime = 0;
 	res = zmq_setsockopt(xsub, ZMQ_LINGER, &lingerTime, sizeof(lingerTime));
@@ -76,12 +127,36 @@ void Capture(string captureAddress, vector<int> filters)
 		}
 
 		res = zmq_recv(receiver, &message, sizeof(message), 0);
-		auto msg = "Subscriber ( CAPTURE ) receive: key: " + to_string(key) + " value: " + to_string(message);
-		Print(msg);
+		auto msg = "Subscriber ( CAPTURE ) receive: key: " + to_string(key) + " value: " + to_string(message) + "\n";
+		OutputDebugStringA(msg.c_str());
 	}
 	auto lingerTime = 0;
 	res = zmq_setsockopt(receiver, ZMQ_LINGER, &lingerTime, sizeof(lingerTime));
 	res = zmq_close(receiver);
+}
+
+void Control(string controlAddress)
+{
+	auto sender = zmq_socket(ctx, ZMQ_PUSH);
+	auto res = zmq_bind(sender, controlAddress.c_str());
+
+	uint16_t temp;
+
+	while (kLiveFlag.load())
+	{
+		cout << "Enter Command: 1) PAUSE  2) RESUME  3) TERMINATE\n";
+		cin >> temp;
+		auto command = MAP_ENUM_STR.at(static_cast<COMMAND>(temp));
+		res = zmq_send(sender, command.data(), command.size(), 0);
+		if (static_cast<COMMAND>(temp) == COMMAND::TERMINATE)
+		{
+			break;
+		}
+	}
+
+	auto lingerTime = 0;
+	res = zmq_setsockopt(sender, ZMQ_LINGER, &lingerTime, sizeof(lingerTime));
+	res = zmq_close(sender);
 }
 
 void Publisher(string name, string address, int filter, int message)
@@ -120,8 +195,8 @@ void Subscriber(string name, string ProxyAddress, int filter)
 			continue;
 		res = zmq_recv(socketReceiver, &buffer, sizeof(buffer), 0);
 
-		auto msg = "Subscriber (" + name + ") receive: key: " + to_string(key) + " value: " + to_string(buffer);
-		Print(msg);
+		auto msg = "Subscriber (" + name + ") receive: key: " + to_string(key) + " value: " + to_string(buffer) + "\n";
+		OutputDebugStringA(msg.c_str());
 	}
 
 	auto lingerTime = 0;
@@ -148,38 +223,34 @@ int main()
 	auto proxyPublisherAddress = "tcp://127.0.0.1:"s + to_string(proxyPublisherPort);
 
 	auto captureAddress = "inproc://capture"s;
+	auto controlAddress = "inproc://control"s;
 
 	auto filter1 = 66;
 	auto filter2 = 77;
 	auto filters = vector<int>{ filter1, filter2 };
 
-	auto proxy = thread(Proxy, publisherAddresses, proxyPublisherAddress, captureAddress);
+	auto proxy = thread(ProxySteerable, publisherAddresses, proxyPublisherAddress, captureAddress, controlAddress);
 	ResolveSlowJoinerSyndrome();
 	auto pub2 = thread(Publisher, "pub2"s, publisherAddress2, filter2, 0);
 	auto pub1 = thread(Publisher, "pub1"s, publisherAddress, filter1, 100);
 	auto sub1 = thread(Subscriber, "sub1"s, proxyPublisherAddress, 66);
 	auto sub2 = thread(Subscriber, "sub2"s, proxyPublisherAddress, 77);
 	auto capture = thread(Capture, captureAddress, filters);
+	auto control = thread(Control, controlAddress);
 
 
-	while (liveCouner < 14)
+	while (kLiveFlag.load())
 	{
-		if (liveCouner == 5)
-		{
-			publishersLiveFlag.store(false);
-			subscibersLiveFlag.store(false);
-		}
-		liveCouner++;
 		this_thread::sleep_for(1s);
 	}
 
-	kLiveFlag.store(false);
+	proxy.join();
 	pub1.join();
 	pub2.join();
 	sub1.join();
 	sub2.join();
 	capture.join();
+	control.join();
 	auto res = zmq_ctx_shutdown(ctx);
 	res = zmq_ctx_destroy(ctx);
-	proxy.join();
 }
