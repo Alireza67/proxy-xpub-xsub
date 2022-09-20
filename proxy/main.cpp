@@ -203,10 +203,15 @@ void ResolveSlowJoinerSyndrome()
 
 int main()
 {
-	shared_ptr<void> context(zmq_ctx_new(), [](void* ctx) {
-		auto res = zmq_ctx_shutdown(ctx);
-		res = zmq_ctx_destroy(ctx);
-		});
+	shared_ptr<void> context{nullptr};
+	{
+		shared_ptr<void> temp(zmq_ctx_new(), [](void* ctx) {
+			auto res = zmq_ctx_shutdown(ctx);
+			res = zmq_ctx_destroy(ctx);
+			});
+		context = temp;
+	}
+	
 
 	auto publisherPort = 9000;
 	auto publisherAddress = "inproc://job_1";
