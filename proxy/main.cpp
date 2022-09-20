@@ -11,8 +11,6 @@
 using namespace std;
 
 atomic<bool> kLiveFlag = true;
-atomic<bool> publishersLiveFlag = true;
-atomic<bool> subscibersLiveFlag = true;
 auto liveCouner = 0;
 mutex lock_;
 
@@ -30,7 +28,6 @@ static map<COMMAND, string> MAP_ENUM_STR
 	{COMMAND::TERMINATE, "TERMINATE"},
 
 };
-
 
 void Print(string msg)
 {
@@ -59,9 +56,6 @@ void ProxySteerable(shared_ptr<void> context, vector<string> publisherAddresses,
 
 	res = zmq_proxy_steerable(xsub, xpub, capture, control);
 	cout << "CLOSE PROXY!" << endl;
-
-	publishersLiveFlag.store(false);
-	subscibersLiveFlag.store(false);
 	kLiveFlag.store(false);
 
 	auto lingerTime = 0;
@@ -162,7 +156,7 @@ void Publisher(shared_ptr<void> context, string name, string address, int filter
 	auto socketSender = zmq_socket(context.get(), ZMQ_PUB);
 	auto res = zmq_bind(socketSender, address.c_str());
 
-	while (publishersLiveFlag.load())
+	while (kLiveFlag.load())
 	{
 		res = zmq_send(socketSender, &filter, sizeof(filter), ZMQ_SNDMORE);
 		res = zmq_send(socketSender, &message, sizeof(message), 0);
@@ -186,7 +180,7 @@ void Subscriber(shared_ptr<void> context, string name, string ProxyAddress, int 
 	int key;
 	int buffer;
 
-	while (subscibersLiveFlag.load())
+	while (kLiveFlag.load())
 	{
 		res = zmq_recv(socketReceiver, &key, sizeof(key), 0);
 		if (res < 0)
@@ -241,7 +235,6 @@ int main()
 	auto capture = thread(Capture, context, captureAddress, filters);
 	auto control = thread(Control, context, controlAddress);
 
-
 	while (kLiveFlag.load())
 	{
 		this_thread::sleep_for(1s);
@@ -254,6 +247,4 @@ int main()
 	sub2.join();
 	capture.join();
 	control.join();
-	//auto res = zmq_ctx_shutdown(ctx);
-	//res = zmq_ctx_destroy(ctx);
 }
