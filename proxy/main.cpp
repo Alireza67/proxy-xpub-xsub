@@ -119,7 +119,7 @@ void Capture(shared_ptr<void> context, string captureAddress, vector<int> filter
 		}
 
 		res = zmq_recv(receiver, &message, sizeof(message), 0);
-		auto msg = "Subscriber ( CAPTURE ) receive: key: " + to_string(key) + " value: " + to_string(message) + "\n";
+		auto msg = "Capture receive: key: " + to_string(key) + " value: " + to_string(message) + "\n";
 		OutputDebugStringA(msg.c_str());
 	}
 	auto lingerTime = 0;
