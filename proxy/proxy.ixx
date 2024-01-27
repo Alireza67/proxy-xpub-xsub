@@ -23,11 +23,6 @@ public:
 
 	virtual ~ProxySteerable() = default;
 
-	void InitializeCaptureSocket(std::string& captureAddress);
-	void InitializeContorlSocket(std::string& controlAddress);
-	void InitializeXpubSocket(std::string& proxyPublisherAddress);
-	void InitializeXsubSocket(std::vector<std::string>& publishersAddresses);
-
 	ProxySteerable(const ProxySteerable& rhs) = delete;
 	ProxySteerable(ProxySteerable&& rhs) = delete;
 	ProxySteerable& operator=(const ProxySteerable& rhs) = delete;
@@ -38,8 +33,12 @@ private:
 	void* xpub_{};
 	void* capture_{};
 	void* control_{};
-
 	UniquePtrWithCustomDelete& context_;
+
+	void InitializeCaptureSocket(std::string& captureAddress);
+	void InitializeContorlSocket(std::string& controlAddress);
+	void InitializeXpubSocket(std::string& proxyPublisherAddress);
+	void InitializeXsubSocket(std::vector<std::string>& publishersAddresses);
 };
 
 ProxySteerable::ProxySteerable(
