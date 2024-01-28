@@ -26,7 +26,6 @@ static map<COMMAND, string> MAP_ENUM_STR
 	{COMMAND::PAUSE, "PAUSE"},
 	{COMMAND::RESUME, "RESUME"},
 	{COMMAND::TERMINATE, "TERMINATE"},
-
 };
 
 void Print(string msg)
