@@ -10,7 +10,6 @@ import <vector>;
 import <thread>;
 import <iostream>;
 import <stdexcept>;
-import <stop_token>;
 
 using namespace std::literals;
 using UniquePtrWithCustomDelete = std::unique_ptr<void, void(*)(void*)>;
@@ -40,6 +39,8 @@ public:
 		std::string captureAddress,
 		std::string controlAddress);
 
+	void InitializeCommanderSocket(std::string& controlAddress);
+
 	virtual ~ProxySteerable();
 
 	bool StartProxy();
@@ -54,11 +55,12 @@ private:
 	void* xpub_{};
 	void* capture_{};
 	void* control_{};
+	void* commander_{};
 	std::thread mainThread_{};
 	std::string controlAddress_{};
 	UniquePtrWithCustomDelete& context_;
 
-	void Run(std::stop_token stoken);
+	void Run();
 	void InitializeCaptureSocket(std::string& captureAddress);
 	void InitializeContorlSocket(std::string& controlAddress);
 	void InitializeXpubSocket(std::string& proxyPublisherAddress);
@@ -77,19 +79,47 @@ ProxySteerable::ProxySteerable(
 	InitializeXpubSocket(proxyPublisherAddress);
 	InitializeCaptureSocket(captureAddress);
 	InitializeContorlSocket(controlAddress);
+	InitializeCommanderSocket(controlAddress);
+}
+
+void ProxySteerable::InitializeCommanderSocket(std::string& controlAddress)
+{
+	commander_ = zmq_socket(context_.get(), ZMQ_PUSH);
+	if (!commander_)
+	{
+		throw std::runtime_error("Proxy couldn't create commander socket!"s);
+	}
+
+	auto res = zmq_connect(commander_, controlAddress.c_str());
+	if (res)
+	{
+		throw std::runtime_error("Commander socket couldn't connect!"s);
+	}
 }
 
 ProxySteerable::~ProxySteerable()
 {
-	auto sender = zmq_socket(context_.get(), ZMQ_PUSH);
-	auto res = zmq_connect(sender, controlAddress_.c_str());
-
-	auto command = MAP_ENUM_STR.at(static_cast<COMMAND>(temp));
-	res = zmq_send(sender, command.data(), command.size(), 0);
+	if (mainThread_.joinable())
+	{
+		if (ControlProxy(COMMAND::TERMINATE))
+		{
+			mainThread_.join();
+		}
+		else
+		{
+			std::cerr << "Couldn't stop proxy thread!\n";
+		}
+	}
 }
 
 bool ProxySteerable::ControlProxy(COMMAND command)
 {
+	auto commandStr = MAP_ENUM_STR.at(command);
+	auto res = zmq_send(commander_, commandStr.data(), commandStr.size(), 0);
+	if (res)
+	{
+		return true;
+	}
 	return false;
 }
 
@@ -121,7 +151,7 @@ void ProxySteerable::InitializeContorlSocket(std::string& controlAddress)
 	zmq_setsockopt(control_, ZMQ_RCVTIMEO, &timeout, sizeof(timeout));
 }
 
-void ProxySteerable::Run(std::stop_token stoken)
+void ProxySteerable::Run()
 {
 	auto res = zmq_proxy_steerable(xsub_, xpub_, capture_, control_);
 	std::cout << "CLOSE PROXY!" << '\n';
