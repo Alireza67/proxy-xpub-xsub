@@ -22,6 +22,13 @@ export enum class COMMAND : uint16_t
 	TERMINATE = 3,
 };
 
+export std::map<int, COMMAND> MAP_INT_ENUM
+{
+	{1, COMMAND::PAUSE},
+	{2, COMMAND::RESUME},
+	{3, COMMAND::TERMINATE}
+};
+
 static std::map<COMMAND, std::string> MAP_ENUM_STR
 {
 	{COMMAND::PAUSE, "PAUSE"},
@@ -39,12 +46,11 @@ public:
 		std::string captureAddress,
 		std::string controlAddress);
 
-	void InitializeCommanderSocket(std::string& controlAddress);
-
 	virtual ~ProxySteerable();
-
+	
 	bool StartProxy();
 	bool ControlProxy(COMMAND command);
+
 	ProxySteerable(const ProxySteerable& rhs) = delete;
 	ProxySteerable(ProxySteerable&& rhs) = delete;
 	ProxySteerable& operator=(const ProxySteerable& rhs) = delete;
@@ -61,8 +67,10 @@ private:
 	UniquePtrWithCustomDelete& context_;
 
 	void Run();
+	void CloseSockets();
 	void InitializeCaptureSocket(std::string& captureAddress);
 	void InitializeContorlSocket(std::string& controlAddress);
+	void InitializeCommanderSocket(std::string& controlAddress);
 	void InitializeXpubSocket(std::string& proxyPublisherAddress);
 	void InitializeXsubSocket(std::vector<std::string>& publishersAddresses);
 };
@@ -104,12 +112,34 @@ ProxySteerable::~ProxySteerable()
 		if (ControlProxy(COMMAND::TERMINATE))
 		{
 			mainThread_.join();
+			CloseSockets();
 		}
 		else
 		{
 			std::cerr << "Couldn't stop proxy thread!\n";
 		}
 	}
+}
+
+void ProxySteerable::CloseSockets()
+{
+	auto lingerTime = 0;
+	zmq_setsockopt(xsub_, ZMQ_LINGER, &lingerTime, sizeof(lingerTime));
+	zmq_setsockopt(xpub_, ZMQ_LINGER, &lingerTime, sizeof(lingerTime));
+	zmq_setsockopt(capture_, ZMQ_LINGER, &lingerTime, sizeof(lingerTime));
+	zmq_setsockopt(control_, ZMQ_LINGER, &lingerTime, sizeof(lingerTime));
+	zmq_setsockopt(commander_, ZMQ_LINGER, &lingerTime, sizeof(lingerTime));
+	zmq_close(xsub_);
+	zmq_close(xpub_);
+	zmq_close(capture_);
+	zmq_close(control_);
+	zmq_close(commander_);
+}
+
+void ProxySteerable::Run()
+{
+	auto res = zmq_proxy_steerable(xsub_, xpub_, capture_, control_);
+	std::cout << "CLOSE PROXY!" << '\n';
 }
 
 bool ProxySteerable::ControlProxy(COMMAND command)
@@ -149,12 +179,6 @@ void ProxySteerable::InitializeContorlSocket(std::string& controlAddress)
 
 	auto timeout = 1000;
 	zmq_setsockopt(control_, ZMQ_RCVTIMEO, &timeout, sizeof(timeout));
-}
-
-void ProxySteerable::Run()
-{
-	auto res = zmq_proxy_steerable(xsub_, xpub_, capture_, control_);
-	std::cout << "CLOSE PROXY!" << '\n';
 }
 
 void ProxySteerable::InitializeCaptureSocket(std::string& captureAddress)

@@ -7,26 +7,17 @@
 #include <vector>
 #include <Windows.h>
 #include <map>
+#include <charconv>
+
+import proxy;
 
 using namespace std;
+
 
 atomic<bool> kLiveFlag = true;
 auto liveCouner = 0;
 mutex lock_;
 
-enum class COMMAND : uint16_t
-{
-	PAUSE = 1,
-	RESUME = 2,
-	TERMINATE = 3,
-};
-
-static map<COMMAND, string> MAP_ENUM_STR
-{
-	{COMMAND::PAUSE, "PAUSE"},
-	{COMMAND::RESUME, "RESUME"},
-	{COMMAND::TERMINATE, "TERMINATE"},
-};
 
 void Print(string msg)
 {
@@ -36,43 +27,6 @@ void Print(string msg)
 
 using UniquePtrWithCustomDelete = unique_ptr<void, void(*)(void*)>;
 
-void ProxySteerable(UniquePtrWithCustomDelete* context,
-	vector<string> publishersAddresses, 
-	string proxyPublisherAddress, 
-	string captureAddress, 
-	string controlAddress)
-{
-	auto xsub = zmq_socket(context->get(), ZMQ_XSUB);
-	for (auto& item : publishersAddresses)
-	{
-		auto res = zmq_connect(xsub, item.c_str());
-	}
-
-	auto xpub = zmq_socket(context->get(), ZMQ_XPUB);
-	auto res = zmq_bind(xpub, proxyPublisherAddress.c_str());
-
-	auto capture = zmq_socket(context->get(), ZMQ_PUB);
-	res = zmq_bind(capture, captureAddress.c_str());
-
-	auto control = zmq_socket(context->get(), ZMQ_PULL);
-	res = zmq_bind(control, controlAddress.c_str());
-	auto timeout = 1000;
-	res = zmq_setsockopt(control, ZMQ_RCVTIMEO, &timeout, sizeof(timeout));
-
-	res = zmq_proxy_steerable(xsub, xpub, capture, control);
-	cout << "CLOSE PROXY!" << endl;
-	kLiveFlag.store(false);
-
-	auto lingerTime = 0;
-	res = zmq_setsockopt(xsub, ZMQ_LINGER, &lingerTime, sizeof(lingerTime));
-	res = zmq_setsockopt(xpub, ZMQ_LINGER, &lingerTime, sizeof(lingerTime));
-	res = zmq_setsockopt(capture, ZMQ_LINGER, &lingerTime, sizeof(lingerTime));
-	res = zmq_setsockopt(control, ZMQ_LINGER, &lingerTime, sizeof(lingerTime));
-	res = zmq_close(xsub);
-	res = zmq_close(xpub);
-	res = zmq_close(capture);
-	res = zmq_close(control);
-}
 
 void Proxy(UniquePtrWithCustomDelete* context, vector<string> publisherAddresses, string proxyPublisherAddress, string captureAddress)
 {
@@ -132,28 +86,29 @@ void Capture(UniquePtrWithCustomDelete* context, string captureAddress, vector<i
 	res = zmq_close(receiver);
 }
 
-void Control(UniquePtrWithCustomDelete* context, string controlAddress)
+void Control(std::unique_ptr<ProxySteerable>* proxy)
 {
-	auto sender = zmq_socket(context->get(), ZMQ_PUSH);
-	auto res = zmq_connect(sender, controlAddress.c_str());
-
-	uint16_t temp;
-
 	while (kLiveFlag.load())
 	{
+		std::string input;
 		cout << "Enter Command: 1) PAUSE  2) RESUME  3) TERMINATE\n";
-		cin >> temp;
-		auto command = MAP_ENUM_STR.at(static_cast<COMMAND>(temp));
-		res = zmq_send(sender, command.data(), command.size(), 0);
-		if (static_cast<COMMAND>(temp) == COMMAND::TERMINATE)
+		cin >> input;
+		
+		int value;
+		auto [ptr, error] {std::from_chars(input.data(), input.data() + input.size(), value)};
+		if (error == std::errc{})
 		{
-			break;
+			if(MAP_INT_ENUM.count(value))
+			{
+				if (!(*proxy)->ControlProxy(MAP_INT_ENUM[value]))
+				{
+					std::cerr << "Command Failed!\n";
+				}
+				continue;
+			}
 		}
+		std::cerr << "Input command isn't valid!\n";
 	}
-
-	auto lingerTime = 0;
-	res = zmq_setsockopt(sender, ZMQ_LINGER, &lingerTime, sizeof(lingerTime));
-	res = zmq_close(sender);
 }
 
 void Publisher(UniquePtrWithCustomDelete* context, string name, string address, int filter, int message)
@@ -233,21 +188,29 @@ int main()
 	auto filter1 = 66;
 	auto filter2 = 77;
 	auto filters = vector<int>{ filter1, filter2 };
-	auto proxy = thread(ProxySteerable, &context, publishersAddresses, proxyPublisherAddress, captureAddress, controlAddress);
+
+	auto proxy = std::make_unique<ProxySteerable>(
+		context, 
+		publishersAddresses, 
+		proxyPublisherAddress, 
+		captureAddress, 
+		controlAddress);
+
+	proxy->StartProxy();
+
 	ResolveSlowJoinerSyndrome();
 	auto pub2 = thread(Publisher, &context, "pub2"s, publisherAddress2, filter2, 0);
 	auto pub1 = thread(Publisher, &context, "pub1"s, publisherAddress, filter1, 100);
 	auto sub1 = thread(Subscriber, &context, "sub1"s, proxyPublisherAddress, 66);
 	auto sub2 = thread(Subscriber, &context, "sub2"s, proxyPublisherAddress, 77);
 	auto capture = thread(Capture, &context, captureAddress, filters);
-	auto control = thread(Control, &context, controlAddress);
+	auto control = thread(Control, &proxy);
 
 	while (kLiveFlag.load())
 	{
 		this_thread::sleep_for(1s);
 	}
 
-	proxy.join();
 	pub1.join();
 	pub2.join();
 	sub1.join();
