@@ -25,9 +25,6 @@ void Print(string msg)
 	cout << msg << endl;
 }
 
-using UniquePtrWithCustomDelete = unique_ptr<void, void(*)(void*)>;
-
-
 void Proxy(UniquePtrWithCustomDelete* context, vector<string> publisherAddresses, string proxyPublisherAddress, string captureAddress)
 {
 	auto capture = zmq_socket(context->get(), ZMQ_PUB);
@@ -163,13 +160,11 @@ void ResolveSlowJoinerSyndrome()
 
 int main()
 {
-
-	unique_ptr<void, void(*)(void*)> context(zmq_ctx_new(), [](void* ctx) 
+	UniquePtrWithCustomDelete context(zmq_ctx_new(), [](void* ctx)
 		{
 			auto res = zmq_ctx_shutdown(ctx);
 			res = zmq_ctx_destroy(ctx);
 		});
-
 
 	auto publisherPort = 9000;
 	auto publisherAddress = "inproc://job_1";

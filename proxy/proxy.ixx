@@ -12,7 +12,7 @@ import <iostream>;
 import <stdexcept>;
 
 using namespace std::literals;
-using UniquePtrWithCustomDelete = std::unique_ptr<void, void(*)(void*)>;
+export using UniquePtrWithCustomDelete = std::unique_ptr<void, void(*)(void*)>;
 
 
 export enum class COMMAND : uint16_t
