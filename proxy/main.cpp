@@ -8,6 +8,8 @@
 #include <Windows.h>
 #include <map>
 #include <charconv>
+#include <list>
+#include <stop_token>
 
 import proxy;
 
@@ -108,12 +110,12 @@ void Control(std::unique_ptr<ProxySteerable>* proxy)
 	}
 }
 
-void Publisher(UniquePtrWithCustomDelete* context, string name, string address, int filter, int message)
+void Publisher(std::stop_token stoken, UniquePtrWithCustomDelete* context, string name, string address, int filter, int message)
 {
 	auto socketSender = zmq_socket(context->get(), ZMQ_PUB);
 	auto res = zmq_bind(socketSender, address.c_str());
 
-	while (kLiveFlag.load())
+	while (!stoken.stop_requested())
 	{
 		res = zmq_send(socketSender, &filter, sizeof(filter), ZMQ_SNDMORE);
 		res = zmq_send(socketSender, &message, sizeof(message), 0);
@@ -166,23 +168,10 @@ int main()
 			res = zmq_ctx_destroy(ctx);
 		});
 
-	auto publisherPort = 9000;
-	auto publisherAddress = "inproc://job_1";
-
-	auto publisherPort2 = 9001;
-	auto publisherAddress2 = "inproc://job_2";
-
-	auto publishersAddresses = vector<string>{ publisherAddress, publisherAddress2 };
-
-	auto proxyPublisherPort = 10000;
-	auto proxyPublisherAddress = "tcp://127.0.0.1:"s + to_string(proxyPublisherPort);
-
+	auto publishersAddresses = vector<string>{ "inproc://job_1", "inproc://job_2" };
+	auto proxyPublisherAddress = "tcp://127.0.0.1:10000"s;
 	auto captureAddress = "inproc://capture"s;
 	auto controlAddress = "inproc://control"s;
-
-	auto filter1 = 66;
-	auto filter2 = 77;
-	auto filters = vector<int>{ filter1, filter2 };
 
 	auto proxy = std::make_unique<ProxySteerable>(
 		context, 
@@ -194,22 +183,39 @@ int main()
 	proxy->StartProxy();
 
 	ResolveSlowJoinerSyndrome();
-	auto pub2 = thread(Publisher, &context, "pub2"s, publisherAddress2, filter2, 0);
-	auto pub1 = thread(Publisher, &context, "pub1"s, publisherAddress, filter1, 100);
-	auto sub1 = thread(Subscriber, &context, "sub1"s, proxyPublisherAddress, 66);
-	auto sub2 = thread(Subscriber, &context, "sub2"s, proxyPublisherAddress, 77);
-	auto capture = thread(Capture, &context, captureAddress, filters);
-	auto control = thread(Control, &proxy);
 
-	while (kLiveFlag.load())
+	auto filters = std::vector<int>{ 66, 77 };
+	auto initialMessage = std::vector<int>{ 0, 100 };
+	auto publishersNames = vector<string>{ "pub1", "pub2" };
+	std::list<std::jthread> publishers;
+
+	auto counter{ 0 };
+	for (auto& itemName : publishersNames)
 	{
-		this_thread::sleep_for(1s);
+		publishers.emplace_back(Publisher, 
+			&context, itemName, publishersAddresses[counter], filters[counter], initialMessage[counter]);
 	}
 
-	pub1.join();
-	pub2.join();
-	sub1.join();
-	sub2.join();
-	capture.join();
-	control.join();
+	//auto sub1 = thread(Subscriber, &context, "sub1"s, proxyPublisherAddress, filter1);
+	//auto sub2 = thread(Subscriber, &context, "sub2"s, proxyPublisherAddress, filter2);
+	//auto capture = thread(Capture, &context, captureAddress, filters);
+	//auto control = thread(Control, &proxy);
+
+	//while (kLiveFlag.load())
+	//{
+	//	this_thread::sleep_for(1s);
+	//}
+
+	for (auto& item : publishers)
+	{
+		item.request_stop();
+		item.join();
+	}
+
+	//pub1.join();
+	//pub2.join();
+	//sub1.join();
+	//sub2.join();
+	//capture.join();
+	//control.join();
 }
