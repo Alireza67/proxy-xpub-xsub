@@ -128,7 +128,7 @@ void Publisher(std::stop_token stoken, UniquePtrWithCustomDelete* context, strin
 	res = zmq_close(socketSender);
 }
 
-void Subscriber(UniquePtrWithCustomDelete* context, string name, string ProxyAddress, int filter)
+void Subscriber(std::stop_token stoken, UniquePtrWithCustomDelete* context, string name, string ProxyAddress, int filter)
 {
 	auto socketReceiver = zmq_socket(context->get(), ZMQ_SUB);
 	auto res = zmq_connect(socketReceiver, ProxyAddress.c_str());
@@ -139,7 +139,7 @@ void Subscriber(UniquePtrWithCustomDelete* context, string name, string ProxyAdd
 	int key;
 	int buffer;
 
-	while (kLiveFlag.load())
+	while (!stoken.stop_requested())
 	{
 		res = zmq_recv(socketReceiver, &key, sizeof(key), 0);
 		if (res < 0)
@@ -162,12 +162,14 @@ void ResolveSlowJoinerSyndrome()
 
 int main()
 {
+	//============== Context ===============//
 	UniquePtrWithCustomDelete context(zmq_ctx_new(), [](void* ctx)
 		{
 			auto res = zmq_ctx_shutdown(ctx);
 			res = zmq_ctx_destroy(ctx);
 		});
 
+	//============== Proxy ===============//
 	auto publishersAddresses = vector<string>{ "inproc://job_1", "inproc://job_2" };
 	auto proxyPublisherAddress = "tcp://127.0.0.1:10000"s;
 	auto captureAddress = "inproc://capture"s;
@@ -184,6 +186,7 @@ int main()
 
 	ResolveSlowJoinerSyndrome();
 
+	//============== Publishers ===============//
 	auto filters = std::vector<int>{ 66, 77 };
 	auto initialMessage = std::vector<int>{ 0, 100 };
 	auto publishersNames = vector<string>{ "pub1", "pub2" };
@@ -196,8 +199,17 @@ int main()
 			&context, itemName, publishersAddresses[counter], filters[counter], initialMessage[counter]);
 	}
 
-	//auto sub1 = thread(Subscriber, &context, "sub1"s, proxyPublisherAddress, filter1);
-	//auto sub2 = thread(Subscriber, &context, "sub2"s, proxyPublisherAddress, filter2);
+	//============== Subscriberes ===============//
+	auto subscribersNames = vector<string>{ "sub1", "sub2" };
+	std::list<std::jthread> subscribers;
+
+	counter = 0;
+	for (auto& itemName : subscribersNames)
+	{
+		subscribers.emplace_back(Subscriber,
+			&context, itemName, proxyPublisherAddress, filters[counter]);
+	}
+
 	//auto capture = thread(Capture, &context, captureAddress, filters);
 	//auto control = thread(Control, &proxy);
 
@@ -207,6 +219,12 @@ int main()
 	//}
 
 	for (auto& item : publishers)
+	{
+		item.request_stop();
+		item.join();
+	}
+
+	for (auto& item : subscribers)
 	{
 		item.request_stop();
 		item.join();
