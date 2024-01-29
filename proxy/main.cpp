@@ -16,7 +16,7 @@ import proxy;
 using namespace std;
 
 
-atomic<bool> kLiveFlag = true;
+atomic<bool> liveFlag = true;
 auto liveCouner = 0;
 mutex lock_;
 
@@ -53,7 +53,7 @@ void Proxy(UniquePtrWithCustomDelete* context, vector<string> publisherAddresses
 	res = zmq_close(capture);
 }
 
-void Capture(UniquePtrWithCustomDelete* context, string captureAddress, vector<int> filters)
+void Capture(std::stop_token stoken, UniquePtrWithCustomDelete* context, string captureAddress, vector<int> filters)
 {
 	auto receiver = zmq_socket(context->get(), ZMQ_SUB);
 	auto res = zmq_connect(receiver, captureAddress.c_str());
@@ -68,7 +68,7 @@ void Capture(UniquePtrWithCustomDelete* context, string captureAddress, vector<i
 	int key;
 	int message;
 
-	while (kLiveFlag.load())
+	while (!stoken.stop_requested())
 	{
 		res = zmq_recv(receiver, &key, sizeof(key), 0);
 		if (res < 0)
@@ -85,9 +85,9 @@ void Capture(UniquePtrWithCustomDelete* context, string captureAddress, vector<i
 	res = zmq_close(receiver);
 }
 
-void Control(std::unique_ptr<ProxySteerable>* proxy)
+void Control(std::stop_token stoken, std::unique_ptr<ProxySteerable>* proxy)
 {
-	while (kLiveFlag.load())
+	while (!stoken.stop_requested())
 	{
 		std::string input;
 		cout << "Enter Command: 1) PAUSE  2) RESUME  3) TERMINATE\n";
@@ -102,6 +102,11 @@ void Control(std::unique_ptr<ProxySteerable>* proxy)
 				if (!(*proxy)->ControlProxy(MAP_INT_ENUM[value]))
 				{
 					std::cerr << "Command Failed!\n";
+				}
+
+				if (MAP_INT_ENUM[value] == COMMAND::TERMINATE)
+				{
+					liveFlag = false;
 				}
 				continue;
 			}
@@ -210,14 +215,18 @@ int main()
 			&context, itemName, proxyPublisherAddress, filters[counter]);
 	}
 
-	//auto capture = thread(Capture, &context, captureAddress, filters);
-	//auto control = thread(Control, &proxy);
+	//============== Capture ===============//
+	auto capture = std::jthread(Capture, &context, captureAddress, filters);
 
-	//while (kLiveFlag.load())
-	//{
-	//	this_thread::sleep_for(1s);
-	//}
+	//============== Control ===============//
+	auto control = std::jthread(Control, &proxy);
 
+	while (liveFlag.load())
+	{
+		this_thread::sleep_for(1s);
+	}
+
+	//============== Clean-up ===============//
 	for (auto& item : publishers)
 	{
 		item.request_stop();
@@ -230,10 +239,9 @@ int main()
 		item.join();
 	}
 
-	//pub1.join();
-	//pub2.join();
-	//sub1.join();
-	//sub2.join();
-	//capture.join();
-	//control.join();
+	capture.request_stop();
+	capture.join();
+
+	control.request_stop();
+	control.join();
 }
