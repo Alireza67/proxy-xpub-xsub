@@ -107,6 +107,7 @@ void Control(std::stop_token stoken, std::unique_ptr<ProxySteerable>* proxy)
 				if (MAP_INT_ENUM[value] == COMMAND::TERMINATE)
 				{
 					liveFlag = false;
+					break;
 				}
 				continue;
 			}
@@ -202,6 +203,7 @@ int main()
 	{
 		publishers.emplace_back(Publisher, 
 			&context, itemName, publishersAddresses[counter], filters[counter], initialMessage[counter]);
+		counter++;
 	}
 
 	//============== Subscriberes ===============//
@@ -213,6 +215,7 @@ int main()
 	{
 		subscribers.emplace_back(Subscriber,
 			&context, itemName, proxyPublisherAddress, filters[counter]);
+		counter++;
 	}
 
 	//============== Capture ===============//
