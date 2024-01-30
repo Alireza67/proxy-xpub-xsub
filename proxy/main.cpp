@@ -27,7 +27,7 @@ void Print(string msg)
 	cout << msg << endl;
 }
 
-void Proxy(UniquePtrWithCustomDelete* context, vector<string> publisherAddresses, string proxyPublisherAddress, string captureAddress)
+void SimpleProxy(UniquePtrWithCustomDelete* context, vector<string> publisherAddresses, string proxyPublisherAddress, string captureAddress)
 {
 	auto capture = zmq_socket(context->get(), ZMQ_PUB);
 	auto res = zmq_bind(capture, captureAddress.c_str());
@@ -85,7 +85,7 @@ void Capture(std::stop_token stoken, UniquePtrWithCustomDelete* context, string 
 	res = zmq_close(receiver);
 }
 
-void Control(std::stop_token stoken, std::unique_ptr<ProxySteerable>* proxy)
+void Control(std::stop_token stoken, std::shared_ptr<Proxy>* proxy)
 {
 	while (!stoken.stop_requested())
 	{
@@ -99,7 +99,8 @@ void Control(std::stop_token stoken, std::unique_ptr<ProxySteerable>* proxy)
 		{
 			if(MAP_INT_ENUM.count(value))
 			{
-				if (!(*proxy)->ControlProxy(MAP_INT_ENUM[value]))
+				auto pp = std::dynamic_pointer_cast<ProxySteerable>(*proxy);
+				if (!pp->ControlProxy(MAP_INT_ENUM[value]))
 				{
 					std::cerr << "Command Failed!\n";
 				}
@@ -166,6 +167,14 @@ void ResolveSlowJoinerSyndrome()
 	this_thread::sleep_for(1s);
 }
 
+struct A {
+	virtual ~A() = default;
+};
+
+struct B : A {
+	// ...
+};
+
 int main()
 {
 	//============== Context ===============//
@@ -181,13 +190,14 @@ int main()
 	auto captureAddress = "inproc://capture"s;
 	auto controlAddress = "inproc://control"s;
 
-	auto proxy = std::make_unique<ProxySteerable>(
+
+	std::shared_ptr<Proxy> proxy = std::make_shared<ProxySteerable>(
 		context, 
 		publishersAddresses, 
 		proxyPublisherAddress, 
 		captureAddress, 
 		controlAddress);
-
+	
 	proxy->StartProxy();
 
 	ResolveSlowJoinerSyndrome();

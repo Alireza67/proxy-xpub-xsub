@@ -36,7 +36,33 @@ static std::map<COMMAND, std::string> MAP_ENUM_STR
 	{COMMAND::TERMINATE, "TERMINATE"},
 };
 
-export class ProxySteerable
+export class Proxy
+{
+public:
+	explicit Proxy(
+		UniquePtrWithCustomDelete& context,
+		std::vector<std::string> publishersAddresses,
+		std::string proxyPublisherAddress,
+		std::string captureAddress);
+
+	virtual ~Proxy() = default;
+	bool StartProxy();
+
+protected:
+	void* xsub_{};
+	void* xpub_{};
+	void* capture_{};
+	std::thread mainThread_{};
+	UniquePtrWithCustomDelete& context_;
+
+	virtual void Run() = 0;
+	void CloseSockets();
+	void InitializeCaptureSocket(std::string& captureAddress);
+	void InitializeXpubSocket(std::string& proxyPublisherAddress);
+	void InitializeXsubSocket(std::vector<std::string>& publishersAddresses);
+};
+
+export class ProxySteerable : public Proxy
 {
 public:
 	explicit ProxySteerable(
@@ -48,7 +74,6 @@ public:
 
 	virtual ~ProxySteerable();
 	
-	bool StartProxy();
 	bool ControlProxy(COMMAND command);
 
 	ProxySteerable(const ProxySteerable& rhs) = delete;
@@ -57,22 +82,14 @@ public:
 	ProxySteerable& operator=(ProxySteerable&& rhs) = delete;
 
 private:
-	void* xsub_{};
-	void* xpub_{};
-	void* capture_{};
 	void* control_{};
 	void* commander_{};
-	std::thread mainThread_{};
 	std::string controlAddress_{};
-	UniquePtrWithCustomDelete& context_;
 
-	void Run();
+	void Run() override;
 	void CloseSockets();
-	void InitializeCaptureSocket(std::string& captureAddress);
 	void InitializeContorlSocket(std::string& controlAddress);
 	void InitializeCommanderSocket(std::string& controlAddress);
-	void InitializeXpubSocket(std::string& proxyPublisherAddress);
-	void InitializeXsubSocket(std::vector<std::string>& publishersAddresses);
 };
 
 ProxySteerable::ProxySteerable(
@@ -81,13 +98,23 @@ ProxySteerable::ProxySteerable(
 	std::string proxyPublisherAddress, 
 	std::string captureAddress, 
 	std::string controlAddress)
-	: controlAddress_(controlAddress), context_(context)
+	: Proxy(context, publishersAddresses, proxyPublisherAddress, captureAddress),
+	controlAddress_(controlAddress)
+{
+	InitializeContorlSocket(controlAddress);
+	InitializeCommanderSocket(controlAddress);
+}
+
+Proxy::Proxy(
+	UniquePtrWithCustomDelete& context,
+	std::vector<std::string> publishersAddresses,
+	std::string proxyPublisherAddress,
+	std::string captureAddress)
+	: context_(context)
 {
 	InitializeXsubSocket(publishersAddresses);
 	InitializeXpubSocket(proxyPublisherAddress);
 	InitializeCaptureSocket(captureAddress);
-	InitializeContorlSocket(controlAddress);
-	InitializeCommanderSocket(controlAddress);
 }
 
 void ProxySteerable::InitializeCommanderSocket(std::string& controlAddress)
@@ -121,17 +148,23 @@ ProxySteerable::~ProxySteerable()
 	}
 }
 
-void ProxySteerable::CloseSockets()
+void Proxy::CloseSockets()
 {
 	auto lingerTime = 0;
 	zmq_setsockopt(xsub_, ZMQ_LINGER, &lingerTime, sizeof(lingerTime));
 	zmq_setsockopt(xpub_, ZMQ_LINGER, &lingerTime, sizeof(lingerTime));
 	zmq_setsockopt(capture_, ZMQ_LINGER, &lingerTime, sizeof(lingerTime));
-	zmq_setsockopt(control_, ZMQ_LINGER, &lingerTime, sizeof(lingerTime));
-	zmq_setsockopt(commander_, ZMQ_LINGER, &lingerTime, sizeof(lingerTime));
 	zmq_close(xsub_);
 	zmq_close(xpub_);
 	zmq_close(capture_);
+}
+
+void ProxySteerable::CloseSockets()
+{
+	Proxy::CloseSockets();
+	auto lingerTime = 0;
+	zmq_setsockopt(control_, ZMQ_LINGER, &lingerTime, sizeof(lingerTime));
+	zmq_setsockopt(commander_, ZMQ_LINGER, &lingerTime, sizeof(lingerTime));
 	zmq_close(control_);
 	zmq_close(commander_);
 }
@@ -153,11 +186,11 @@ bool ProxySteerable::ControlProxy(COMMAND command)
 	return false;
 }
 
-bool ProxySteerable::StartProxy()
+bool Proxy::StartProxy()
 {
 	if (!mainThread_.joinable())
 	{
-		mainThread_ = std::thread(&ProxySteerable::Run, this);
+		mainThread_ = std::thread(&Proxy::Run, this);
 		return true;
 	}
 	return false;
@@ -181,7 +214,7 @@ void ProxySteerable::InitializeContorlSocket(std::string& controlAddress)
 	zmq_setsockopt(control_, ZMQ_RCVTIMEO, &timeout, sizeof(timeout));
 }
 
-void ProxySteerable::InitializeCaptureSocket(std::string& captureAddress)
+void Proxy::InitializeCaptureSocket(std::string& captureAddress)
 {
 	capture_ = zmq_socket(context_.get(), ZMQ_PUB);
 	if (!capture_)
@@ -196,7 +229,7 @@ void ProxySteerable::InitializeCaptureSocket(std::string& captureAddress)
 	}
 }
 
-void ProxySteerable::InitializeXpubSocket(std::string& proxyPublisherAddress)
+void Proxy::InitializeXpubSocket(std::string& proxyPublisherAddress)
 {
 	xpub_ = zmq_socket(context_.get(), ZMQ_XPUB);
 	if (!xpub_)
@@ -211,7 +244,7 @@ void ProxySteerable::InitializeXpubSocket(std::string& proxyPublisherAddress)
 	}
 }
 
-void ProxySteerable::InitializeXsubSocket(std::vector<std::string>& publishersAddresses)
+void Proxy::InitializeXsubSocket(std::vector<std::string>& publishersAddresses)
 {
 	xsub_ = zmq_socket(context_.get(), ZMQ_XSUB);
 	if (!xsub_)
