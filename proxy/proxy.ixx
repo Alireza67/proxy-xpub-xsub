@@ -62,6 +62,21 @@ protected:
 	void InitializeXsubSocket(std::vector<std::string>& publishersAddresses);
 };
 
+export class SimpleProxy : public Proxy
+{
+public:
+	using Proxy::Proxy;
+	virtual ~SimpleProxy();
+
+	SimpleProxy(const SimpleProxy& rhs) = delete;
+	SimpleProxy(SimpleProxy&& rhs) = delete;
+	SimpleProxy& operator=(const SimpleProxy& rhs) = delete;
+	SimpleProxy& operator=(SimpleProxy&& rhs) = delete;
+
+private:
+	void Run() override;
+};
+
 export class ProxySteerable : public Proxy
 {
 public:
@@ -103,6 +118,21 @@ ProxySteerable::ProxySteerable(
 {
 	InitializeContorlSocket(controlAddress);
 	InitializeCommanderSocket(controlAddress);
+}
+
+void SimpleProxy::Run()
+{
+	auto res = zmq_proxy(xsub_, xpub_, capture_);
+	std::cout << "CLOSE SIMPLE PROXY!" << '\n';
+}
+
+SimpleProxy::~SimpleProxy()
+{
+	if (mainThread_.joinable())
+	{
+		mainThread_.join();
+		CloseSockets();
+	}
 }
 
 Proxy::Proxy(
@@ -172,7 +202,7 @@ void ProxySteerable::CloseSockets()
 void ProxySteerable::Run()
 {
 	auto res = zmq_proxy_steerable(xsub_, xpub_, capture_, control_);
-	std::cout << "CLOSE PROXY!" << '\n';
+	std::cout << "CLOSE STEERABLE PROXY!" << '\n';
 }
 
 bool ProxySteerable::ControlProxy(COMMAND command)
