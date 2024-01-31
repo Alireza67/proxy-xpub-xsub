@@ -27,32 +27,6 @@ void Print(string msg)
 	cout << msg << endl;
 }
 
-void SimpleProxy(UniquePtrWithCustomDelete* context, vector<string> publisherAddresses, string proxyPublisherAddress, string captureAddress)
-{
-	auto capture = zmq_socket(context->get(), ZMQ_PUB);
-	auto res = zmq_bind(capture, captureAddress.c_str());
-
-	auto xpub = zmq_socket(context->get(), ZMQ_XPUB);
-	res = zmq_bind(xpub, proxyPublisherAddress.c_str());
-
-	auto xsub = zmq_socket(context->get(), ZMQ_XSUB);
-	for (auto& item : publisherAddresses)
-	{
-		res = zmq_connect(xsub, item.c_str());
-	}
-
-	res = zmq_proxy(xsub, xpub, capture);
-	cout << "CLOSE PROXY!" << endl;
-
-	auto lingerTime = 0;
-	res = zmq_setsockopt(xsub, ZMQ_LINGER, &lingerTime, sizeof(lingerTime));
-	res = zmq_setsockopt(xpub, ZMQ_LINGER, &lingerTime, sizeof(lingerTime));
-	res = zmq_setsockopt(capture, ZMQ_LINGER, &lingerTime, sizeof(lingerTime));
-	res = zmq_close(xsub);
-	res = zmq_close(xpub);
-	res = zmq_close(capture);
-}
-
 void Capture(std::stop_token stoken, UniquePtrWithCustomDelete* context, string captureAddress, vector<int> filters)
 {
 	auto receiver = zmq_socket(context->get(), ZMQ_SUB);
@@ -100,7 +74,11 @@ void Control(std::stop_token stoken, std::shared_ptr<Proxy>* proxy)
 			if(MAP_INT_ENUM.count(value))
 			{
 				auto pp = std::dynamic_pointer_cast<ProxySteerable>(*proxy);
-				if (!pp->ControlProxy(MAP_INT_ENUM[value]))
+				if (!pp)
+				{
+					std::cerr << "Proxy isn't steerable! (just termination is active now!)\n";
+				}
+				else if (!pp->ControlProxy(MAP_INT_ENUM[value]))
 				{
 					std::cerr << "Command Failed!\n";
 				}
@@ -191,13 +169,19 @@ int main()
 	auto controlAddress = "inproc://control"s;
 
 
-	std::shared_ptr<Proxy> proxy = std::make_shared<ProxySteerable>(
-		context, 
-		publishersAddresses, 
-		proxyPublisherAddress, 
-		captureAddress, 
-		controlAddress);
-	
+	//std::shared_ptr<Proxy> proxy = std::make_shared<ProxySteerable>(
+	//	context, 
+	//	publishersAddresses, 
+	//	proxyPublisherAddress, 
+	//	captureAddress, 
+	//	controlAddress);	
+
+	std::shared_ptr<Proxy> proxy = std::make_shared<SimpleProxy>(
+		context,
+		publishersAddresses,
+		proxyPublisherAddress,
+		captureAddress);
+
 	proxy->StartProxy();
 
 	ResolveSlowJoinerSyndrome();

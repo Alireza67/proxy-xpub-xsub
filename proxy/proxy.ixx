@@ -68,11 +68,6 @@ public:
 	using Proxy::Proxy;
 	virtual ~SimpleProxy();
 
-	SimpleProxy(const SimpleProxy& rhs) = delete;
-	SimpleProxy(SimpleProxy&& rhs) = delete;
-	SimpleProxy& operator=(const SimpleProxy& rhs) = delete;
-	SimpleProxy& operator=(SimpleProxy&& rhs) = delete;
-
 private:
 	void Run() override;
 };
