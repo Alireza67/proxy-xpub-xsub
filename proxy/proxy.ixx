@@ -125,8 +125,8 @@ SimpleProxy::~SimpleProxy()
 {
 	if (mainThread_.joinable())
 	{
-		mainThread_.join();
 		CloseSockets();
+		mainThread_.join();
 	}
 }
 
